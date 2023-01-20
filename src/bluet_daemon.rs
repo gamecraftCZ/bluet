@@ -5,17 +5,22 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
 use futures::pin_mut;
-use futures::StreamExt;  // Enable use of .next() on streams
-use log::{debug, error, info, LevelFilter, trace};
+// futures:StreamExt -> Enable use of .next() on streams
+use futures::StreamExt;
+use log::{debug, error, info, trace};
 use tokio::sync::{mpsc};
 use tokio::{task, time};
 use tokio::time::{Duration};
+use tokio::signal::unix::{signal, SignalKind};
 use tokio_stream::wrappers::ReceiverStream;
 use crate::parser::load_all_rules;
 use crate::common::{AddressBT, DeviceBT, DeviceProps, Filter, Rule};
 use crate::bt_triggerer::{ScanDeviceEvent, scanning_loop};
 use crate::consts::{BLUET_CONFIG_DIR};
 use crate::global_config::CONFIG;
+
+#[cfg(not(all(feature = "debug", debug_assertions)))]
+use log::LevelFilter;
 
 #[macro_use]
 extern crate lazy_static;
@@ -66,10 +71,11 @@ impl EventMatcher {
             match self.devices.get_mut(&address) {
                 None => {}
                 Some(mut device) => {
-                    for rule in &device.matched_rules {
-                        rule.check_and_run(&device, &device.properties, &new_props);
+                    for rule in device.matched_rules.iter().collect::<Vec<&Rc<Rule>>>() {
+                        rule.check_and_run(device, &device.properties, &new_props);
                     }
                     if new_props.rssi.is_some() {
+                        if new_props.rssi.unwrap() > CONFIG.rssi_threshold { device.is_found = true; }
                         device.last_seen = Instant::now();
                         device.properties = new_props;
                     } else {
@@ -93,6 +99,7 @@ impl EventMatcher {
                     properties: new_props,
                     last_seen: Instant::now(),
                     matched_rules: matching_rules,
+                    is_found: false,
                 };
 
                 for rule in &device.matched_rules {
@@ -127,11 +134,11 @@ impl EventMatcher {
 
         let mut to_remove = Vec::new();
 
-        for (address, device) in &self.devices {
+        for (address, mut device) in &self.devices {
             if device.last_seen.elapsed().as_secs() > CONFIG.timeout_for_disconnect {
                 to_remove.push(address.clone());
                 for rule in &device.matched_rules {
-                    rule.check_and_run(&device, &device.properties, &DeviceProps::default());
+                    rule.check_and_run(&mut device, &device.properties, &DeviceProps::default());
                 }
             }
         }
@@ -140,6 +147,63 @@ impl EventMatcher {
             self.devices.remove(&address);
             debug!("EventMatcher :: Device {} removed in expiry check.", address);
         }
+    }
+
+    /// Reload Event matcher with new rules.
+    /// Does matching and for newly added / changed rules it triggers command immediately.
+    /// Returns count of rules (not_changed, deleted, added)
+    pub fn reload_rules(&mut self, new_rules: Vec<Rule>) -> (usize, usize, usize) {
+        let mut new_rules_vec: Vec<Rc<Rule>> = Vec::new();
+
+        // Delete matched rules from devices
+        let old_rules_count = self.rules.len();
+        for device in self.devices.values_mut() {
+            device.matched_rules.clear();
+        }
+
+        // Create checker structure for rule existence
+        let mut rules_counts: HashMap<&Rule, u32> = HashMap::new();
+        for rule in &self.rules {
+            rules_counts.entry(&*rule).and_modify(|counter| *counter += 1).or_insert(1);
+        }
+
+        // Iterate rules for changes
+        let mut added_rules_count: usize = 0;
+        for rule in &new_rules.into_iter().map(Rc::new).collect::<Vec<Rc<Rule>>>() {
+            new_rules_vec.push(Rc::clone(rule));
+
+            // Check if this rule already existed
+            if rules_counts.get(&**rule).unwrap_or(&0) > &0 {
+                // Rule existed
+                rules_counts.entry(&**rule).and_modify(|counter| *counter -= 1);
+                for (addr, device) in &mut self.devices {
+                    if rule.address_matcher.is_match(addr) {
+                        device.matched_rules.push(Rc::clone(rule));
+                    }
+                }
+
+            } else {
+                // New rule
+                debug!("New rule found: {:?}", rule);
+                added_rules_count += 1;
+                for (addr, device) in &mut self.devices {
+                    if rule.address_matcher.is_match(addr) {
+                        device.matched_rules.push(Rc::clone(rule));
+                        rule.check_and_run(&device, &DeviceProps::default(), &device.properties);
+                    }
+                }
+            }
+        }
+
+        self.rules = new_rules_vec;
+
+        let rules_not_changed = self.rules.len() - added_rules_count;
+        let rules_deleted = old_rules_count - rules_not_changed;
+        let rules_added = added_rules_count;
+        info!("Reloaded rules. {} rules unchanged, {} rules deleted, {} rules added.",
+            rules_not_changed, rules_deleted, rules_added
+        );
+        return (rules_not_changed, rules_deleted, rules_added);
     }
     //endregion
 
@@ -166,19 +230,22 @@ impl EventMatcher {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Setup Logging
-    if cfg!(debug_assertions) {
+    #[cfg(all(feature = "debug", debug_assertions))]
+    {
         println!("Running debug build of BlueT!");
         ::std::env::set_var("RUST_LOG", "debug");
         env_logger::init();
         log::warn!("Running debug build of BlueT!");
-    } else {
+    }
+    #[cfg(not(all(feature = "debug", debug_assertions)))]
+    {
         systemd_journal_logger::init().unwrap();
         log::set_max_level(LevelFilter::Info);
     }
 
     info!("Starting BlueT daemon...");
 
-    // Check if root
+    // Check if root if not debug build
     if !cfg!(debug_assertions) {
         let uid = users::get_current_uid();
         if uid != 0 {
@@ -210,6 +277,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut event_matcher = EventMatcher::new(rules);
     let scan_events = scanning_loop().await?;
     pin_mut!(scan_events);
+
+    // Listen for reload (SIGHUP signal)
+    let mut sighup_signal = signal(SignalKind::hangup())?;
+    info!("Attached SIGHUP signal listener for rules 'reload'.");
 
     // Start Expired devices checking
     let (tx_check_expired, rx_check_expired) = mpsc::channel(1);
@@ -243,6 +314,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ = rx_check_expired_stream.next() => {
                 event_matcher.check_expired_devices();
             },
+            _ = sighup_signal.recv() => {
+                info!("SIGHUP received, reloading all .bluet rule files");
+                let new_rules = load_all_rules().expect("Failed reloading rules!");
+                event_matcher.reload_rules(new_rules);
+            }
             else => break,
         }
     }
@@ -250,4 +326,59 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     info!("BlueT daemon stopped.");
     Ok(())
+}
+
+
+
+#[cfg(test)]
+mod bluet_daemon_tests {
+    use super::*;
+    // Makes available User.home_dir():
+    use users::os::unix::UserExt;
+    use crate::common::{Command, Event, UserToRun};
+    use crate::parser::{AddressMatcher, MatchingType};
+
+    fn get_testing_rule(command: &str) -> Rule {
+        let user = users::get_user_by_uid(users::get_current_uid()).unwrap();
+
+        let rule = Rule {
+            filter: Filter::Any,
+            address_matcher: Box::new(AddressMatcher::new(MatchingType::All)),
+            event: Event::Connect,
+            user_to_run: UserToRun {
+                username: Box::from(user.name()),
+                uid: user.uid(),
+                gid: user.primary_group_id(),
+                home_dir: user.home_dir().to_path_buf(),
+                shell_path: user.shell().to_path_buf(),
+            },
+            source_file: None,
+            command: Command::System(command.to_string()),
+        };
+
+        return rule;
+    }
+
+    #[test]
+    fn test_reload_rules_counts() {
+        let rules = vec![
+            get_testing_rule("1"),
+            get_testing_rule("2"),
+            get_testing_rule("3"),
+        ];
+        let new_rules = vec![
+            // get_testing_rule("1"), // delete
+            // get_testing_rule("2"), // delete
+            get_testing_rule("3"),  // no change
+            get_testing_rule("4"),  // add
+            get_testing_rule("5"),  // add
+            get_testing_rule("6"),  // add
+        ];
+
+        let mut event_matcher = EventMatcher::new(rules);
+
+        let (not_changed, deleted, added) = event_matcher.reload_rules(new_rules);
+
+        assert_eq!((not_changed, deleted, added), (1, 2, 3))
+    }
 }

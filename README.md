@@ -54,13 +54,14 @@ Linux daemon for specifying bluetooth triggers at the ease of crontab.
 - `expired_check = int` (default 5)
     - Check if some device is LOST each <expired_check> seconds.
 
-- `bluetooth_device = OPTIONAl(String)` (default None)
+- `bluetooth_device = OPTIONAL(String)` (default None)
     - Bluetooth device to use for scanning, if not present, default device is used
 
-## Troubleshooting
-
-- If you get `your_script.sh: command not found` for script you have in your home directory,
-  change its path to `./your_script.sh`
+## Installation
+1. Build the project: `cargo build --package bluet --bin bluet_daemon --release --features="daemon"`
+2. Copy binary to bin: `sudo cp target/release/build/bluet_daemon /usr/bin`
+3. Copy service definition file: `sudo cp bluet.service /etc/systemd/system`
+4. Enable bluet service: `sudo systemctl enable`
 
 ## Requirements for running:
 
@@ -69,3 +70,8 @@ Linux daemon for specifying bluetooth triggers at the ease of crontab.
 ## Requirements for compilation
 
 - Installed `libbus-1-dev`
+
+## Troubleshooting
+
+- If you get `your_script.sh: command not found` for script you have in your home directory,
+  change its path to `./your_script.sh`

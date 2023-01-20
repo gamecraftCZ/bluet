@@ -50,29 +50,43 @@ impl Display for RuleTooShort {
 //endregion
 
 //region Address matchers
-pub trait AddressMatcher: Debug {
-    fn is_match(&self, address: &AddressBT) -> bool;
+#[derive(Debug, Hash, Ord, PartialOrd, Eq, PartialEq)]
+pub enum MatchingType {
+    All,
+    Single(AddressBT),
+    // ByteRange(AddressBT, AddressBT),    // Start and End addresses, range checked on each byte separately
+    // AddressRange(AddressBT, AddressBT), // Start and End addresses, range checked on full address
 }
 
-/// Matches single address defined in address_to_match attribute
-#[derive(Debug)]
-pub struct SingleAddressMatcher {
-    pub(crate) address_to_match: AddressBT,
+#[derive(Debug, Hash, Ord, PartialOrd, Eq, PartialEq)]
+pub struct AddressMatcher {
+    matching_type: MatchingType
 }
-
-impl AddressMatcher for SingleAddressMatcher {
-    fn is_match(&self, address: &AddressBT) -> bool {
-        &self.address_to_match == address
+impl AddressMatcher {
+    pub fn new(matching_type: MatchingType) -> Self {
+        return Self { matching_type };
     }
-}
-
-/// Matches all addresses
-#[derive(Debug)]
-pub struct AllAddressMatcher {}
-
-impl AddressMatcher for AllAddressMatcher {
-    fn is_match(&self, _address: &AddressBT) -> bool {
-        true
+    pub fn is_match(&self, address: &AddressBT) -> bool {
+        match self.matching_type {
+            MatchingType::All => true,
+            MatchingType::Single(addr) => &addr == address,
+            // MatchingType::ByteRange(start, end) => {
+            //     for i in 0..6 {
+            //         if (start[i] <= address[i]) && (address[i] <= end[i]) {
+            //             return false;
+            //         }
+            //     }
+            //     return true;
+            // }
+            // MatchingType::AddressRange(start, end) => {
+            //     for i in 0..6 {
+            //         if (start[i] < address[i]) && (address[i] > end[i]) { return true; }
+            //         if (start[i] == address[i]) || (start[i] == address[i]) { continue; }
+            //         return false;
+            //     }
+            //     return true;
+            // }
+        }
     }
 }
 //endregion
@@ -113,14 +127,14 @@ pub fn parse_rule_line(line: &str, usernames_included: bool, username_to_run: &O
 
     // Parse Address
     // Only "*" and full address or all supported
-    let address_matcher: Box<dyn AddressMatcher>;
+    let address_matcher: Box<AddressMatcher>;
     if parts[1] == "*" {
         // Matches anything
-        address_matcher = Box::new(AllAddressMatcher {});
+        address_matcher = Box::new(AddressMatcher::new(MatchingType::All));
     } else {
         // Matches single address
         let address = AddressBT::from_str(parts[1])?;  // May return parsing error.
-        address_matcher = Box::new(SingleAddressMatcher { address_to_match: address })
+        address_matcher = Box::new(AddressMatcher::new(MatchingType::Single(address)));
     }
 
 
@@ -260,7 +274,7 @@ pub fn load_all_rules() -> Result<Vec<Rule>, Box<dyn Error>> {
             let filepath = home_dir.join(RULES_FILENAME);
             if filepath.exists() {
                 trace!("Loading '{:?}' for user with uid {}", &filepath, uid);
-                info!("Loading rules file '{:?}' for user {:?}", filepath, username_str);
+                info!("Loading rules file {:?} for user {:?}", filepath, username_str);
                 let mut rules = load_rules_file(filepath.as_path(), false, user.name());
                 info!("Loaded {} rules for user {:?}", rules.len(), username_str);
                 all_rules.append(&mut rules);

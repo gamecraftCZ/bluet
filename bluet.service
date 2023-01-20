@@ -1,0 +1,16 @@
+[Unit]
+Description=BlueT daemon
+After=bluetooth.service
+Requires=bluetooth.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=15
+User=root
+ExecStart=/usr/bin/bluet_daemon
+ExecReload=/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target

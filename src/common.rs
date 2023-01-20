@@ -95,18 +95,19 @@ pub struct DeviceBT {
     pub properties: DeviceProps,
     pub last_seen: Instant,
     pub matched_rules: Vec<Rc<Rule>>,
+    pub is_found: bool,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Hash, Eq, PartialEq)]
 pub enum Filter { Any, Paired, NotPaired }
 
 // ,Connected
-#[derive(Debug)]
+#[derive(Debug, Hash, Eq, PartialEq)]
 pub enum Event { Connect, Disconnect, Found, Lost }
 
 // , Paired, Forget
-#[derive(Debug)]
+#[derive(Debug, Hash, Eq, PartialEq)]
 pub enum Command { System(String) }
 
 impl Command {
@@ -125,7 +126,7 @@ impl Command {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, Eq, PartialEq)]
 pub struct UserToRun {
     pub username: Box<OsStr>,
     pub uid: uid_t,
@@ -134,10 +135,10 @@ pub struct UserToRun {
     pub shell_path: PathBuf,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, Eq, PartialEq)]
 pub struct Rule {
     pub filter: Filter,
-    pub address_matcher: Box<dyn AddressMatcher>,
+    pub address_matcher: Box<AddressMatcher>,
     pub event: Event,
     pub user_to_run: UserToRun,
     pub source_file: Option<PathBuf>,
@@ -145,28 +146,31 @@ pub struct Rule {
 }
 
 impl Rule {
-    pub fn check_and_run(&self, device: &DeviceBT, old_props: &DeviceProps, new_props: &DeviceProps) {
-        // Check BT Address: Just in case, but checked elsewhere.
-        if !self.address_matcher.is_match(&device.address) { return; }
+    /// Check if rule is matched and run if yes. Returns true if run, otherwise false.
+    pub fn check_and_run(&self, device: &DeviceBT, old_props: &DeviceProps, new_props: &DeviceProps) -> bool {
+        // Check BT Address: Just in case, but it is checked elsewhere.
+        if !self.address_matcher.is_match(&device.address) { return false; }
 
         // Check Filter
         if !match self.filter {
             Filter::Any => true,
             Filter::Paired => device.properties.paired,
             Filter::NotPaired => !device.properties.paired,
-        } { return; }
+        } { return false; }
 
         // Check Event type:
         if !match self.event {
             Event::Connect => !old_props.connected && new_props.connected,
             Event::Disconnect => old_props.connected && !new_props.connected,
-            Event::Found => old_props.rssi.is_none() && new_props.rssi.is_some()
+            Event::Found => !device.is_found
+                && new_props.rssi.is_some()
                 && new_props.rssi.unwrap() > CONFIG.rssi_threshold,
-            Event::Lost => old_props.rssi.is_some() && new_props.rssi.is_none(),
-        } { return; }
+            Event::Lost => device.is_found && new_props.rssi.is_none(),
+        } { return true; }
 
         info!("Triggered rule '{:?}' by device '{:?}'.", self, device);
         unsafe { self.run_command_as_user_in_new_process(); }
+        return true;
     }
 
     pub unsafe fn run_command_as_user_in_new_process(&self) -> pid_t {
@@ -214,17 +218,15 @@ mod common_tests {
     use std::path::Path;
     use users::os::unix::UserExt;
     // Makes available User.home_dir().
-    use futures::TryFutureExt;
     use libc::c_int;
+    use crate::parser::MatchingType;
 
     fn get_default_testing_user_rule() -> Rule {
         let user = users::get_user_by_uid(users::get_current_uid()).unwrap();
 
         let rule = Rule {
             filter: Filter::Any,
-            address_matcher: Box::new(SingleAddressMatcher {
-                address_to_match: AddressBT::from_str("00:11:22:33:44:55").unwrap()
-            }),
+            address_matcher: Box::new(AddressMatcher::new(MatchingType::All)),
             event: Event::Connect,
             user_to_run: UserToRun {
                 username: Box::from(user.name()),
