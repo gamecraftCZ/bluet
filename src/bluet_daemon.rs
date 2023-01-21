@@ -7,8 +7,10 @@ use std::time::Instant;
 use futures::pin_mut;
 // futures:StreamExt -> Enable use of .next() on streams
 use futures::StreamExt;
+use std::task::{Context, Poll};
 use log::{debug, error, info, trace};
 use tokio::sync::{mpsc};
+use tokio::sync::mpsc::{UnboundedSender};
 use tokio::{task, time};
 use tokio::time::{Duration};
 use tokio::signal::unix::{signal, SignalKind};
@@ -52,13 +54,15 @@ const DEFAULT_GLOBAL_BLUET_FILE: &str = "\
 pub struct EventMatcher {
     rules: Vec<Rc<Rule>>,
     devices: HashMap<AddressBT, DeviceBT>,
+    to_recheck_tx: UnboundedSender<(AddressBT, Instant)>
 }
 
 impl EventMatcher {
-    pub fn new(rules: Vec<Rule>) -> Self {
+    pub fn new(rules: Vec<Rule>, to_recheck_tx: UnboundedSender<(AddressBT, Instant)>) -> Self {
         Self {
             rules: rules.into_iter().map(Rc::new).collect(),
             devices: HashMap::new(),
+            to_recheck_tx,
         }
     }
 
@@ -71,13 +75,32 @@ impl EventMatcher {
             match self.devices.get_mut(&address) {
                 None => {}
                 Some(mut device) => {
+                    if !new_props.connected {
+                        device.last_connect = None;
+                    }
+
+                    let new_connect = new_props.connected && !device.properties.connected;
+                    let mut new_props = new_props.clone();
+                    if new_connect { new_props.connected = false; }
+
                     for rule in device.matched_rules.iter().collect::<Vec<&Rc<Rule>>>() {
                         rule.check_and_run(device, &device.properties, &new_props);
                     }
                     if new_props.rssi.is_some() {
                         if new_props.rssi.unwrap() > CONFIG.rssi_threshold { device.is_found = true; }
+                        if !new_props.connected {
+                            device.is_connected = false;
+                        }
+
                         device.last_seen = Instant::now();
                         device.properties = new_props;
+                        if new_connect {
+                            let now = Instant::now();
+                            device.last_connect = Some(now);
+                            debug!("Device {} connected, scheduling connect recheck.", address);
+                            self.to_recheck_tx.send((address, now.clone())).unwrap();
+                        }
+
                     } else {
                         self.devices.remove(&address);
                         // Remove the device when it goes out.
@@ -94,18 +117,22 @@ impl EventMatcher {
             if matching_rules.len() > 0 {
                 debug!("EventMatcher :: New device {} matched for {} rules. Its props: {:?}", address, matching_rules.len(), new_props);
 
-                let device = DeviceBT {
+                let mut device = DeviceBT {
                     address,
                     properties: new_props,
                     last_seen: Instant::now(),
                     matched_rules: matching_rules,
                     is_found: false,
+                    is_connected: false,
+                    last_connect: None,
                 };
 
                 for rule in &device.matched_rules {
                     rule.check_and_run(&device, &DeviceProps::default(), &device.properties);
                 }
 
+                if device.properties.rssi.unwrap() > CONFIG.rssi_threshold { device.is_found = true; }
+                if device.properties.connected { device.is_connected = true; }
                 self.devices.insert(address, device);
             }
         }
@@ -146,6 +173,28 @@ impl EventMatcher {
         for address in to_remove {
             self.devices.remove(&address);
             debug!("EventMatcher :: Device {} removed in expiry check.", address);
+        }
+    }
+
+    pub fn recheck_connect(&mut self, to_recheck: &Vec<(AddressBT, Instant)>) {
+        debug!("EventMatcher :: Rechecking connect for {} devices", to_recheck.len());
+        for (addr, last_connect) in to_recheck {
+            match self.devices.get_mut(&addr) {
+                None => {}
+                Some(mut device) => {
+                    debug!("Rechecking last_connect: {:?} for device {:?}", last_connect, device);
+                    if device.last_connect == Some(*last_connect) {
+                        let old_props = device.properties.clone();
+                        let mut new_props = old_props.clone();
+                        new_props.connected = true;
+                        for rule in &device.matched_rules {
+                            rule.check_and_run(&device, &old_props, &new_props);
+                        }
+                        device.properties = new_props;
+                        device.is_connected = true;
+                    }
+                }
+            }
         }
     }
 
@@ -274,7 +323,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Start the daemon
     info!("Setting up event matcher...");
-    let mut event_matcher = EventMatcher::new(rules);
+    let (tx_recheck_queue, mut rx_recheck_queue) = mpsc::unbounded_channel();
+    let mut event_matcher = EventMatcher::new(rules, tx_recheck_queue);
     let scan_events = scanning_loop().await?;
     pin_mut!(scan_events);
 
@@ -296,8 +346,45 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    // Start Recheck devices checking
+    let (tx_recheck_connect, rx_recheck_connect) = mpsc::channel(1);
+
+    task::spawn(async move {
+        let mut end = false;
+        let mut addresses: Vec<(AddressBT, Instant)> = Vec::new();
+        while !end {
+            // Get all messages from the queue
+            let waker = futures::task::noop_waker();
+            let mut cx = Context::from_waker(&waker);
+            while match rx_recheck_queue.poll_recv(&mut cx) {
+                Poll::Ready(message) => {
+                    if message.is_some() {
+                        addresses.push(message.unwrap());
+                        true
+                    } else {
+                        end = true;
+                        false
+                    }
+                }
+                Poll::Pending => false,
+            } {};
+            if addresses.len() > 0 {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                if tx_recheck_connect.send(addresses).await.is_err() { return; }
+                debug!("Sent addresses to recheck queue.");
+                addresses = Vec::new();
+            } else {
+                // Wait for next message
+                let addr = rx_recheck_queue.recv().await;
+                if addr.is_none() { return; }
+                addresses.push(addr.unwrap());
+            }
+        }
+    });
+
     // Loop forever
     let mut rx_check_expired_stream = ReceiverStream::new(rx_check_expired);
+    let mut rx_recheck_connect_stream = ReceiverStream::new(rx_recheck_connect);
     info!("BlueT daemon running.");
     loop {
         tokio::select! {
@@ -307,22 +394,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         event_matcher.on_device_add_or_change(address, props);
                     },
                     ScanDeviceEvent::RemoveDevice(address) => {
-                        event_matcher.on_device_remove(address)
+                        event_matcher.on_device_remove(address);
                     },
                 }
             },
             _ = rx_check_expired_stream.next() => {
                 event_matcher.check_expired_devices();
             },
-            _ = sighup_signal.recv() => {
-                info!("SIGHUP received, reloading all .bluet rule files");
+            to_recheck = rx_recheck_connect_stream.next() => {
+                event_matcher.recheck_connect(&to_recheck.unwrap());
+            },
+            signal_info = sighup_signal.recv() => {
+                info!("SIGHUP received, reloading all .bluet rule files. Signal info: {:?}", signal_info);
                 let new_rules = load_all_rules().expect("Failed reloading rules!");
                 event_matcher.reload_rules(new_rules);
             }
             else => break,
         }
     }
-
 
     info!("BlueT daemon stopped.");
     Ok(())

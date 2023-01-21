@@ -95,7 +95,9 @@ pub struct DeviceBT {
     pub properties: DeviceProps,
     pub last_seen: Instant,
     pub matched_rules: Vec<Rc<Rule>>,
-    pub is_found: bool,
+    pub is_found: bool,  // Were the FOUND rules triggered
+    pub is_connected: bool,  // Were the CONNECT rules triggered
+    pub last_connect: Option<Instant>,
 }
 
 
@@ -147,7 +149,7 @@ pub struct Rule {
 
 impl Rule {
     /// Check if rule is matched and run if yes. Returns true if run, otherwise false.
-    pub fn check_and_run(&self, device: &DeviceBT, old_props: &DeviceProps, new_props: &DeviceProps) -> bool {
+    pub fn check_and_run(&self, device: &DeviceBT, _old_props: &DeviceProps, new_props: &DeviceProps) -> bool {
         // Check BT Address: Just in case, but it is checked elsewhere.
         if !self.address_matcher.is_match(&device.address) { return false; }
 
@@ -160,15 +162,15 @@ impl Rule {
 
         // Check Event type:
         if !match self.event {
-            Event::Connect => !old_props.connected && new_props.connected,
-            Event::Disconnect => old_props.connected && !new_props.connected,
+            Event::Connect => !device.is_connected && new_props.connected,
+            Event::Disconnect => device.is_connected && !new_props.connected,
             Event::Found => !device.is_found
                 && new_props.rssi.is_some()
                 && new_props.rssi.unwrap() > CONFIG.rssi_threshold,
             Event::Lost => device.is_found && new_props.rssi.is_none(),
         } { return true; }
 
-        info!("Triggered rule '{:?}' by device '{:?}'.", self, device);
+        info!("Triggered rule '{:?}' by device '{:?}', new_props: '{:?}'.", self, device, new_props);
         unsafe { self.run_command_as_user_in_new_process(); }
         return true;
     }

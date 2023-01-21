@@ -17,6 +17,7 @@ Linux daemon for specifying bluetooth triggers at the ease of crontab.
 - Lines starting with `#` are ignored
 
 - Rule structure: `<filter> <address> <event> <!username> <command>`
+- Example: `ANY 11:22:33:44:55:66 FOUND ./headphones_found.sh`
 
 - **filter**:
     - `ANY` = Match any device
@@ -36,11 +37,12 @@ Linux daemon for specifying bluetooth triggers at the ease of crontab.
 - **command**
     - Command to be run in default user terminal
     - Working directory is set to users home folder
+    - Don't forget to add `./` prefix if running script from your home directory
 
 ## Configuration file
 
 - Stored in `/etc/bluet/bluet_conf.toml`
-- To load new config file, use `systemctl bluet restart` (reload is not enough, mut be restart)
+- To load new config file, use `systemctl bluet restart` (reload is not enough, must be restarted)
 - Writen in TOML
 
 ### Configuration file structure
@@ -59,9 +61,9 @@ Linux daemon for specifying bluetooth triggers at the ease of crontab.
 
 ## Installation
 1. Build the project: `cargo build --package bluet --bin bluet_daemon --release --features="daemon"`
-2. Copy binary to bin: `sudo cp target/release/build/bluet_daemon /usr/bin`
+2. Copy binary to bin: `sudo cp target/release/bluet_daemon /usr/bin`
 3. Copy service definition file: `sudo cp bluet.service /etc/systemd/system`
-4. Enable bluet service: `sudo systemctl enable`
+4. Enable bluet service: `sudo systemctl enable bluet`
 
 ## Requirements for running:
 

@@ -23,6 +23,8 @@ name = "bluet_daemon"
 path = "src/bluet_daemon.rs"
 required-features = ["daemon"]
 
+[profile.release]
+lto = true  # Enable link-time optimization for considerably smaller binary size
 
 [dependencies]
 log = "0.4.17"
