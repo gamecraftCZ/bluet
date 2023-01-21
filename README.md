@@ -43,7 +43,7 @@ Linux daemon for specifying bluetooth triggers at the ease of crontab.
 
 - Stored in `/etc/bluet/bluet_conf.toml`
 - To load new config file, use `systemctl bluet restart` (reload is not enough, must be restarted)
-- Writen in TOML
+- Written in TOML
 
 ### Configuration file structure
 
