@@ -8,12 +8,11 @@ mod common;
 mod parser;
 mod consts;
 
-// BlueT command line utility
+// TODO BlueT command line utility
 fn main() {
-    env_logger::init();
+    // env_logger::init();
+    // info!("Logger setup done.");
 
-    info!("Logger setup done.");
-
-    println!("Hello, world!");
-    println!("TODO me!");
+    // println!("Hello, world!");
+    println!("BlueT command line utility not ready yet!");
 }
