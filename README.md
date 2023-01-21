@@ -4,6 +4,8 @@
 
 Linux daemon for specifying bluetooth triggers at the ease of crontab.
 
+Read BlueT as  "Blue Tea"
+
 ## Trigger rules file
 
 - Global one in `/etc/bluet/.bluet`
