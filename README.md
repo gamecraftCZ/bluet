@@ -65,7 +65,8 @@ Read BlueT as  "Blue Tea"
 1. Build the project: `cargo build --package bluet --bin bluet_daemon --release --features="daemon"`
 2. Copy binary to bin: `sudo cp target/release/bluet_daemon /usr/bin`
 3. Copy service definition file: `sudo cp bluet.service /etc/systemd/system`
-4. Enable bluet service: `sudo systemctl enable bluet`
+4. Reload services files: `sudo systemctl daemon-reload`
+5. Enable bluet service: `sudo systemctl enable bluet`
 
 ## Requirements for running:
 
