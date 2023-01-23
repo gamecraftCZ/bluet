@@ -1,4 +1,4 @@
-use std::ffi::OsStr;
+use std::ffi::{CString, OsStr};
 use std::fmt::{Debug, Display, Formatter};
 use std::path::{PathBuf};
 use std::rc::Rc;
@@ -187,7 +187,8 @@ impl Rule {
                 libc::setsid();  // For to its own process group.
 
                 libc::setgid(self.user_to_run.gid);
-                libc::initgroups(self.user_to_run.username.to_str().unwrap().as_ptr(), self.user_to_run.gid);
+                let username_cstr = CString::new(self.user_to_run.username.to_str().unwrap()).unwrap();
+                libc::initgroups(username_cstr.as_ptr(), self.user_to_run.gid);
                 // libc::setlogin(&self.user_to_run.username);  // setlogin not in rust libc
 
                 if libc::setuid(self.user_to_run.uid) != 0 {
