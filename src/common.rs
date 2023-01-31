@@ -1,3 +1,6 @@
+//!Common datastructures used in multiple modules.
+//! Also contains code for running a triggered command on Rule.
+
 use std::ffi::{CString, OsStr};
 use std::fmt::{Debug, Display, Formatter};
 use std::path::{PathBuf};
@@ -89,6 +92,7 @@ impl DeviceProps {
     }
 }
 
+/// Bluetooth device information.
 #[derive(Debug)]
 pub struct DeviceBT {
     pub address: AddressBT,
@@ -101,14 +105,15 @@ pub struct DeviceBT {
 }
 
 
+/// Bluetooth devices filter
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub enum Filter { Any, Paired, NotPaired }
 
-// ,Connected
+/// Trigger event for a rule
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub enum Event { Connect, Disconnect, Found, Lost }
 
-// , Paired, Forget
+/// Command to execute when rule is triggered
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub enum Command { System(String) }
 
@@ -128,6 +133,7 @@ impl Command {
     }
 }
 
+/// Information about a user as which the rule command will be executed
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub struct UserToRun {
     pub username: Box<OsStr>,
@@ -137,6 +143,7 @@ pub struct UserToRun {
     pub shell_path: PathBuf,
 }
 
+/// Information about a single rule (loaded from one line in rules file)
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub struct Rule {
     pub filter: Filter,
@@ -149,6 +156,7 @@ pub struct Rule {
 
 impl Rule {
     /// Check if rule is matched and run if yes. Returns true if run, otherwise false.
+    /// True means that command run was initated, not that the run finished successfuly!
     pub fn check_and_run(&self, device: &DeviceBT, _old_props: &DeviceProps, new_props: &DeviceProps) -> bool {
         // Check BT Address: Just in case, but it is checked elsewhere.
         if !self.address_matcher.is_match(&device.address) { return false; }
@@ -175,6 +183,7 @@ impl Rule {
         return true;
     }
 
+    /// forks new process and runs self.command as user from self.user_to_run
     pub unsafe fn run_command_as_user_in_new_process(&self) -> pid_t {
         match { libc::fork() } {
             -1 => {

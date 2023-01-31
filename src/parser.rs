@@ -1,3 +1,5 @@
+//! Module for loading and parsing BlueT rules files.
+
 use std::{error, fs};
 use std::fs::File;
 use std::error::Error;
@@ -11,8 +13,6 @@ use users::os::unix::UserExt;
 // Makes available User.home_dir().
 use log::{error, warn, info, debug, trace};
 use crate::common::{AddressBT, Command, Event, Filter, Rule, UserToRun};
-use crate::consts::{GLOBAL_BLUET_RULES_FILE_PATH, LOGIN_DEFS, RULES_FILENAME};
-use crate::DEFAULT_GLOBAL_BLUET_FILE;
 
 //region Errors
 #[derive(Debug)]
@@ -201,21 +201,6 @@ pub fn parse_rules(rules_text: &String, usernames_included: bool, user_to_run: &
 }
 //endregion
 
-//region Load rules functions
-/// Load minimum normal user id (UID_MIN) from `/etc/login.defs`.
-/// If UID_MIN not set in the file, return default linux value, which is 1000.
-fn get_min_uid_for_normal_users() -> Result<u32, Box<dyn Error>> {
-    let data = fs::read_to_string(LOGIN_DEFS)?;
-    for line in data.lines() {
-        if line.starts_with("UID_MIN") {
-            return Ok(line.split_whitespace().rev().next().unwrap().parse()?);
-        }
-    }
-
-    warn!("No UID_MIN found in {LOGIN_DEFS}! Using default value of 1000.");
-    return Ok(1000);  // If nothing found, return default UID_MIN in linux, which is 1000
-}
-
 /// Parse rules from <filepath> file and set their 'user_to_run' attribude to <username> user.
 /// If <is_root> is true, load 'username' from config file.
 /// Prints all errors to log, does not propagate them.
@@ -237,28 +222,26 @@ pub fn load_rules_file(filepath: &Path, is_root: bool, username: &OsStr) -> Vec<
     return Vec::new();
 }
 
-/// Parse all rules from Global rules file (`/etc/bluet/.bluet`)
-///  and from all `.bluet` rule files in normal users home directories.
+/// Parse all rules from RULES_FILEPATH. If the rules file does not exist, create ir.
 pub fn load_all_rules() -> Result<Vec<Rule>, Box<dyn Error>> {
-    let mut all_rules = Vec::new();
-
-    // Load global `/etc/bluet/.bluet` rules.
-    debug!("Loading global '{GLOBAL_BLUET_RULES_FILE_PATH}' rules file...");
-    if Path::new(GLOBAL_BLUET_RULES_FILE_PATH).exists() {
-        // Load existing file
-        let mut rules = load_rules_file(GLOBAL_BLUET_RULES_FILE_PATH.as_ref(), true, &OsStr::new("root"));
-        info!("Loaded {} global rules", rules.len());
-        all_rules.append(&mut rules);
+    debug!("Loading '{RULES_FILEPATH}' rules file...");
+    if Path::new(RULES_FILEPATH).exists() {
+        // Load existing rules file
+        let mut rules = load_rules_file(RULES_FILEPATH.as_ref(), true, &OsStr::new("root"));
+        info!("Loaded {} rules", rules.len());
+        return rules;
+        
     } else {
-        info!("Global {GLOBAL_BLUET_RULES_FILE_PATH} rules file not found, creating new...");
-        // Create new Global rules file as it doesn't exist
-        match File::create(GLOBAL_BLUET_RULES_FILE_PATH) {
+        info!("'{RULES_FILEPATH}' rules file not found, creating new.");
+        // Create new rules file as it doesn't exist
+        match File::create(RULES_FILEPATH) {
             Ok(mut file) => match file.write_all(DEFAULT_GLOBAL_BLUET_FILE.as_ref()) {
-                Ok(_) => info!("New {GLOBAL_BLUET_RULES_FILE_PATH} created successfully"),
-                Err(_) => error!("Error writing global {GLOBAL_BLUET_RULES_FILE_PATH} rules file!"),
+                Ok(_) => debug!("New {RULES_FILEPATH} created successfully"),
+                Err(_) => error!("Error writing {RULES_FILEPATH} rules file!"),
             }
-            Err(_) => error!("Error creating global {GLOBAL_BLUET_RULES_FILE_PATH} rules file!"),
+            Err(_) => error!("Error creating {RULES_FILEPATH} rules file!"),
         }
+        return Vec::new();
     }
 
     // Load rules for each user:
@@ -289,13 +272,3 @@ pub fn load_all_rules() -> Result<Vec<Rule>, Box<dyn Error>> {
     return Ok(all_rules);
 }
 //endregion
-
-#[cfg(test)]
-mod parser_tests {
-    use crate::parser::get_min_uid_for_normal_users;
-
-    #[test]
-    fn test_get_min_uid_for_normal_users() {
-        assert!(get_min_uid_for_normal_users().is_ok())
-    }
-}

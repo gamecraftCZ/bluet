@@ -1,3 +1,5 @@
+//! BlueT daemon main loop and event checking logic
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
@@ -18,7 +20,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::parser::load_all_rules;
 use crate::common::{AddressBT, DeviceBT, DeviceProps, Filter, Rule};
 use crate::bt_triggerer::{ScanDeviceEvent, scanning_loop};
-use crate::consts::{BLUET_CONFIG_DIR};
+use crate::consts::{CONFIG_FILEPATH, RULES_FILEPATH};
 use crate::global_config::CONFIG;
 
 #[cfg(not(all(feature = "debug", debug_assertions)))]
@@ -33,13 +35,13 @@ mod consts;
 mod bt_triggerer;
 mod global_config;
 
+// TODO Move and add one for user
+const DEFAULT_GLOBAL_RULES_FILE: &str = "\
+# /etc/bluet/ruled: system-wide bluet rules file.
+# Unlike other rules files, this one has an additional username field,
+# so don't forget to include the username as whom to run the command.
 
-const DEFAULT_GLOBAL_BLUET_FILE: &str = "\
-# /etc/bluet/.bluet: system-wide bluet rules file.
-# Unlike other .bluet files, this one has a username field,
-# so dont forget to include the username as which to run the command.
-
-# Example of rules definition:
+# Example of rule definition:
 # .----------------------- rule (ANY; PAIRED; NOT_PAIRED)
 # |   .------------------- address (*; aa:bb:cc:dd:ee:ff)
 # |   | .----------------- event (CONNECT; DISCONNECT; FOUND; LOST)
@@ -51,6 +53,9 @@ const DEFAULT_GLOBAL_BLUET_FILE: &str = "\
 ";
 
 
+/// EventMatcher is responsible for handling rule execution based on
+/// events from BlueZ. Additionaly it allows for rules to be reloaded
+/// and for devices to be checked for expiration (no info about device is XX seconds).
 pub struct EventMatcher {
     rules: Vec<Rc<Rule>>,
     devices: HashMap<AddressBT, DeviceBT>,
@@ -67,6 +72,7 @@ impl EventMatcher {
     }
 
     //region Externally callable functions
+    /// Callback function for BlueZ events about new devices / device properties changed.
     pub fn on_device_add_or_change(&mut self, address: AddressBT, new_props: DeviceProps) {
         trace!("EventMatcher :: Device added/changed event: {}, new props: {:?}", address, new_props);
 
@@ -138,6 +144,7 @@ impl EventMatcher {
         }
     }
 
+    /// Callback for BlueZ device removed events
     pub fn on_device_remove(&mut self, address: AddressBT) {
         trace!("EventMatcher :: Device removed event: {}", address);
 
@@ -156,6 +163,8 @@ impl EventMatcher {
         }
     }
 
+    /// Checks if any device wasn't seen in 'CONGIG.timeout_for_disconnect' seconds.
+    /// Should be called regularly
     pub fn check_expired_devices(&mut self) {
         trace!("EventMatcher :: Checking expired devices");
 
@@ -176,6 +185,10 @@ impl EventMatcher {
         }
     }
 
+    /// Recheck if the devices that were connected on to_recheck.Intant time
+    /// are still connected with the same connection.  
+    /// REASON is that when connections failes BlueZ sets this devices
+    /// connected property to true and immediately to false again. (at least on my RPi 3B)
     pub fn recheck_connect(&mut self, to_recheck: &Vec<(AddressBT, Instant)>) {
         debug!("EventMatcher :: Rechecking connect for {} devices", to_recheck.len());
         for (addr, last_connect) in to_recheck {
@@ -256,6 +269,7 @@ impl EventMatcher {
     }
     //endregion
 
+    /// Get all rules that can be triggered by this device.
     fn get_matching_rules(&self, address: &AddressBT, props: &DeviceProps) -> Vec<Rc<Rule>> {
         let mut matched_rules = Vec::new();
         for rule in &self.rules {
@@ -276,6 +290,8 @@ impl EventMatcher {
 
 // Check for expired devices every X seconds
 // main() returns Result, so we can use await? without expect().
+/// Setup logging, load config and rules, set reload signal listener, 
+/// start checking loop for paired devices and loop checking for change events until exited.
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Setup Logging
@@ -294,30 +310,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     info!("Starting BlueT daemon...");
 
-    // Check if root if not debug build
-    if !cfg!(debug_assertions) {
-        let uid = users::get_current_uid();
-        if uid != 0 {
-            error!("BlueT must be run under ROOT user, but is run under user with id: {}", uid);
-            panic!("BlueT must be run under ROOT user, but is run under user with id: {}", uid);
-        }
-    }
-
-    // Check lazily loaded CONFIG
+    // Check lazily loaded constants
+    debug!("Rules filepath: {:?}", RULES_FILEPATH)
+    debug!("Config filepath: {:?}", CONFIG_FILEPATH)
     debug!("Loaded config: {:?}", *CONFIG);
 
     // Make sure `/etc/bluet` folder exists
-    if !Path::new(BLUET_CONFIG_DIR).exists() {
+    if !Path::new(BLUET_DIR).exists() {
         // No Config folder found -> create it:
         // .expect(&format!("Can't create config directory '{BLUET_CONFIG_DIR}'!").as_str());
-        match fs::create_dir_all(BLUET_CONFIG_DIR) {
-            Ok(_) => info!("Created new configuration directory for BlueT ('{BLUET_CONFIG_DIR}')."),
-            Err(err) => panic!("Can't create config directory '{BLUET_CONFIG_DIR}'! Error: {err:?}"),
+        match fs::create_dir_all(BLUET_DIR) {
+            Ok(_) => info!("Created new confg directory for BlueT ('{BLUET_DIR}')."),
+            Err(err) => panic!("Can't create config directory '{BLUET_DIR}'! Error: {err:?}"),
         }
     }
 
     // Load rules from files
-    info!("Loading .bluet rules files...");
+    info!("Loading rules files...");
     let rules = load_all_rules().expect("Failed loading rules!");
     info!("Loaded total of {} rules.", rules.len());
 

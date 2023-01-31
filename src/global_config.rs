@@ -1,4 +1,4 @@
-//! Module for making loaded CONFIG available to all code.
+//! Module to load CONFIG from file and make it globally available.
 use std::fmt::{Debug};
 use std::error::Error;
 use std::fs;

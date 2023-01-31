@@ -1,4 +1,4 @@
-//! Discover Bluetooth devices and list them.
+//! Bluetooth adapters communication
 use log::{error, info};
 use bluer::{Adapter, AdapterEvent, Address};
 use futures::{Stream, StreamExt};
@@ -25,6 +25,7 @@ pub enum ScanDeviceEvent {
     RemoveDevice(AddressBT),
 }
 
+/// Start bluetooth devices discovery and send changes to a pipe.
 pub async fn scanning_loop() -> bluer::Result<impl Stream<Item=ScanDeviceEvent>> {
     let (tx, rx) = mpsc::channel(1);
 
