@@ -8,10 +8,10 @@ Read BlueT as  "Blue Tea"
 
 ## Trigger rules file
 
-- Global one in `/etc/bluet/.bluet`
-- Local `.bluet` for each user stored in their home directory.
+- Global one in `/etc/bluet/rules`
+- User local in `~/.config/bluet/rules`
 - Scripts are run in users home folder
-- To reload the `.bluet` trigger rules, use `systemctl bluet reload`
+- To reload the rules, use `systemctl reload bluet` or for user daemon `systemctl --user reload bluet`
 
 ### Trigger rules file structure
 
@@ -43,8 +43,9 @@ Read BlueT as  "Blue Tea"
 
 ## Configuration file
 
-- Stored in `/etc/bluet/bluet_conf.toml`
-- To load new config file, use `systemctl bluet restart` (reload is not enough, must be restarted)
+- Global in `/etc/bluet/conf.toml`
+- Local user daemon config in `~/.config/bluet/conf.toml`
+- To load new config file, use `systemctl bluet restart` or `systemctl --user bluet restary` (reload is not enough, must be restarted)
 - Written in TOML
 
 ### Configuration file structure
@@ -61,12 +62,19 @@ Read BlueT as  "Blue Tea"
 - `bluetooth_device = OPTIONAL(String)` (default None)
     - Bluetooth device to use for scanning, if not present, default device is used
 
-## Installation
+## Installation as system global daemon
 1. Build the project: `cargo build --package bluet --bin bluet_daemon --release --features="daemon"`
 2. Copy binary to bin: `sudo cp target/release/bluet_daemon /usr/bin`
 3. Copy service definition file: `sudo cp bluet.service /etc/systemd/system`
 4. Reload services files: `sudo systemctl daemon-reload`
 5. Enable bluet service: `sudo systemctl enable bluet`
+
+## Installation as local user daemon
+1. Build the project: `cargo build --package bluet --bin bluet_daemon --release --features="daemon"`
+2. Change service definition file to point to bluet_daemon binary file.
+3. Copy service definition file: `sudo cp bluet.service ~/.config/systemd/user`
+4. Reload services files: `sudo systemctl --user daemon-reload`
+5. Enable bluet service: `sudo systemctl --user enable bluet`
 
 ## Requirements for running:
 

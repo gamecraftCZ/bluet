@@ -8,7 +8,6 @@ StartLimitIntervalSec=0
 Type=simple
 Restart=always
 RestartSec=15
-User=root
 ExecStart=/usr/bin/bluet_daemon
 ExecReload=/bin/kill -HUP $MAINPID
 
