@@ -7,7 +7,7 @@ use std::io::Write;  // Enable use of writeln!() to file.
 use std::path::Path;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use crate::consts::{BLUET_CONFIG_FILE, BLUET_CONFIG_DIR};
+use crate::consts::{CONFIG_FILEPATH};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -36,26 +36,26 @@ impl Config {
 }
 
 fn config_from_file() -> Result<Config, Box<dyn Error>> {
-    if Path::new(BLUET_CONFIG_FILE).exists() {
+    if Path::new(&*CONFIG_FILEPATH).exists() {
         // Load config
-        let config_str = fs::read_to_string(BLUET_CONFIG_FILE)?;
+        let config_str = fs::read_to_string(&*CONFIG_FILEPATH)?;
         return Ok(toml::from_str(config_str.as_str())?);
     } else {
         // Create new config file
         let cfg = Config::default();
         let config_str = toml::to_string(&cfg)?;
-        match File::create(BLUET_CONFIG_FILE) {
+        match File::create(&*CONFIG_FILEPATH) {
             Ok(mut file) => {
                 write!(&mut file, "{}", config_str)?;
                 if cfg.bluetooth_device.is_none() {
                     #[warn(unused_must_use)]
                     write!(&mut file, "# bluetooth_device = \"bt_device_to_use\"")?;
                 }
-                info!("Created new configuration directory for BlueT ('{BLUET_CONFIG_DIR}').");
+                info!("Created new configuration directory for BlueT ('{}').", *CONFIG_FILEPATH);
             }
             Err(err) => {
-                error!("Can't create config file '{BLUET_CONFIG_FILE}'! Error: {err:?}");
-                panic!("Can't create config file '{BLUET_CONFIG_FILE}'! Error: {err:?}");
+                error!("Can't create config file '{}'! Error: {err:?}", *CONFIG_FILEPATH);
+                panic!("Can't create config file '{}'! Error: {err:?}", *CONFIG_FILEPATH);
             },
         }
         return Ok(cfg);

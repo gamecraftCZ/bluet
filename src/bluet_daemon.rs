@@ -10,7 +10,7 @@ use futures::pin_mut;
 // futures:StreamExt -> Enable use of .next() on streams
 use futures::StreamExt;
 use std::task::{Context, Poll};
-use log::{debug, error, info, trace};
+use log::{debug, info, trace};
 use tokio::sync::{mpsc};
 use tokio::sync::mpsc::{UnboundedSender};
 use tokio::{task, time};
@@ -20,7 +20,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::parser::load_all_rules;
 use crate::common::{AddressBT, DeviceBT, DeviceProps, Filter, Rule};
 use crate::bt_triggerer::{ScanDeviceEvent, scanning_loop};
-use crate::consts::{CONFIG_FILEPATH, RULES_FILEPATH};
+use crate::consts::{BLUET_DIR, CONFIG_FILEPATH, RULES_FILEPATH};
 use crate::global_config::CONFIG;
 
 #[cfg(not(all(feature = "debug", debug_assertions)))]
@@ -34,23 +34,6 @@ mod parser;
 mod consts;
 mod bt_triggerer;
 mod global_config;
-
-// TODO Move and add one for user
-const DEFAULT_GLOBAL_RULES_FILE: &str = "\
-# /etc/bluet/ruled: system-wide bluet rules file.
-# Unlike other rules files, this one has an additional username field,
-# so don't forget to include the username as whom to run the command.
-
-# Example of rule definition:
-# .----------------------- rule (ANY; PAIRED; NOT_PAIRED)
-# |   .------------------- address (*; aa:bb:cc:dd:ee:ff)
-# |   | .----------------- event (CONNECT; DISCONNECT; FOUND; LOST)
-# |   | |     .----------- username to run the command as
-# |   | |     |        .-- command to be executed
-# |   | |     |        |
-# ANY * FOUND username ./command.sh
-
-";
 
 
 /// EventMatcher is responsible for handling rule execution based on
@@ -311,19 +294,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Starting BlueT daemon...");
 
     // Check lazily loaded constants
-    debug!("Rules filepath: {:?}", RULES_FILEPATH)
-    debug!("Config filepath: {:?}", CONFIG_FILEPATH)
-    debug!("Loaded config: {:?}", *CONFIG);
+    debug!("Rules filepath: {:?}", *RULES_FILEPATH);
+    debug!("Config filepath: {:?}", *CONFIG_FILEPATH);
 
-    // Make sure `/etc/bluet` folder exists
-    if !Path::new(BLUET_DIR).exists() {
+    // Make sure BlueT configs folder exists
+    if !Path::new(&*BLUET_DIR).exists() {
         // No Config folder found -> create it:
         // .expect(&format!("Can't create config directory '{BLUET_CONFIG_DIR}'!").as_str());
-        match fs::create_dir_all(BLUET_DIR) {
-            Ok(_) => info!("Created new confg directory for BlueT ('{BLUET_DIR}')."),
-            Err(err) => panic!("Can't create config directory '{BLUET_DIR}'! Error: {err:?}"),
+        match fs::create_dir_all(&*BLUET_DIR) {
+            Ok(_) => info!("Created new confg directory for BlueT ('{}').", *BLUET_DIR),
+            Err(err) => panic!("Can't create config directory '{}'! Error: {err:?}", *BLUET_DIR),
         }
     }
+    debug!("Loaded config: {:?}", *CONFIG);
 
     // Load rules from files
     info!("Loading rules files...");

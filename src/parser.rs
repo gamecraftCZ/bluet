@@ -11,8 +11,9 @@ use std::str::FromStr;
 use users::{get_user_by_name};
 use users::os::unix::UserExt;
 // Makes available User.home_dir().
-use log::{error, warn, info, debug, trace};
+use log::{error, warn, info, debug};
 use crate::common::{AddressBT, Command, Event, Filter, Rule, UserToRun};
+use crate::consts::{RULES_FILE_TEMPLATE, RULES_FILEPATH};
 
 //region Errors
 #[derive(Debug)]
@@ -216,7 +217,7 @@ pub fn load_rules_file(filepath: &Path, is_root: bool, username: &OsStr) -> Vec<
             }
             return rules;
         }
-        Err(err) => error!("Error loading global {GLOBAL_BLUET_RULES_FILE_PATH} rules file! Error: {err}"),
+        Err(err) => error!("Error loading {filepath:?} rules file! Error: {err}"),
     }
 
     return Vec::new();
@@ -224,51 +225,23 @@ pub fn load_rules_file(filepath: &Path, is_root: bool, username: &OsStr) -> Vec<
 
 /// Parse all rules from RULES_FILEPATH. If the rules file does not exist, create ir.
 pub fn load_all_rules() -> Result<Vec<Rule>, Box<dyn Error>> {
-    debug!("Loading '{RULES_FILEPATH}' rules file...");
-    if Path::new(RULES_FILEPATH).exists() {
+    debug!("Loading '{}' rules file...", *RULES_FILEPATH);
+    if Path::new(&*RULES_FILEPATH).exists() {
         // Load existing rules file
-        let mut rules = load_rules_file(RULES_FILEPATH.as_ref(), true, &OsStr::new("root"));
+        let rules = load_rules_file(RULES_FILEPATH.as_ref(), true, &OsStr::new("root"));
         info!("Loaded {} rules", rules.len());
-        return rules;
-        
+        return Ok(rules);
     } else {
-        info!("'{RULES_FILEPATH}' rules file not found, creating new.");
+        info!("'{}' rules file not found, creating new.", *RULES_FILEPATH);
         // Create new rules file as it doesn't exist
-        match File::create(RULES_FILEPATH) {
-            Ok(mut file) => match file.write_all(DEFAULT_GLOBAL_BLUET_FILE.as_ref()) {
-                Ok(_) => debug!("New {RULES_FILEPATH} created successfully"),
-                Err(_) => error!("Error writing {RULES_FILEPATH} rules file!"),
+        match File::create(&*RULES_FILEPATH) {
+            Ok(mut file) => match file.write_all(RULES_FILE_TEMPLATE.as_ref()) {
+                Ok(_) => debug!("New {} created successfully", *RULES_FILEPATH),
+                Err(_) => error!("Error writing {} rules file!", *RULES_FILEPATH),
             }
-            Err(_) => error!("Error creating {RULES_FILEPATH} rules file!"),
+            Err(_) => error!("Error creating {} rules file!", *RULES_FILEPATH),
         }
-        return Vec::new();
+        return Ok(Vec::new());
     }
-
-    // Load rules for each user:
-    debug!("Loading local '~/.bluet` files for each user...");
-    let min_uid = get_min_uid_for_normal_users()?;
-    let iter = unsafe { users::all_users() };
-    for user in iter {
-        let uid = user.uid();
-        // If normal user
-        if uid >= min_uid {
-            let username_str = user.name();
-            let home_dir: &Path = user.home_dir();
-            let filepath = home_dir.join(RULES_FILENAME);
-            if filepath.exists() {
-                trace!("Loading '{:?}' for user with uid {}", &filepath, uid);
-                info!("Loading rules file {:?} for user {:?}", filepath, username_str);
-                let mut rules = load_rules_file(filepath.as_path(), false, user.name());
-                info!("Loaded {} rules for user {:?}", rules.len(), username_str);
-                all_rules.append(&mut rules);
-            } else {
-                trace!("'{:?}' does not exist for user with uid {}", &filepath, uid);
-            }
-        } else {
-            trace!("Not loading user with uid {}, not a normal user.", uid);
-        }
-    }
-
-    return Ok(all_rules);
 }
 //endregion
