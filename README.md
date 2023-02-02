@@ -88,3 +88,8 @@ Read BlueT as  "Blue Tea"
 
 - If you get `your_script.sh: command not found` for script you have in your home directory,
   change its path to `./your_script.sh`
+
+## Development documentation
+
+- Generate development documentation using `cargo doc --no-deps --document-private-items --bin bluet_daemon --workspace --all-features`
+- It will be saved in `./target/doc/bluet_daemon`

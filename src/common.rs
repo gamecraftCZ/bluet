@@ -1,4 +1,4 @@
-//!Common datastructures used in multiple modules.
+//! Common datastructures used in multiple modules.
 //! Also contains code for running a triggered command on Rule.
 
 use std::ffi::{CString, OsStr};
@@ -156,7 +156,7 @@ pub struct Rule {
 
 impl Rule {
     /// Check if rule is matched and run if yes. Returns true if run, otherwise false.
-    /// True means that command run was initated, not that the run finished successfuly!
+    /// True means that command run was initiated, not that the run finished successfully!
     pub fn check_and_run(&self, device: &DeviceBT, _old_props: &DeviceProps, new_props: &DeviceProps) -> bool {
         // Check BT Address: Just in case, but it is checked elsewhere.
         if !self.address_matcher.is_match(&device.address) { return false; }

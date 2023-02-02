@@ -31,7 +31,7 @@ lazy_static! {
         if user.uid() == 0 {
             // if root user, use template with username definitions
             format!("
-# version=0.1
+#version=1
 # {}: system-wide bluet rules file.
 # Unlike other rules files, this one has an additional username field,
 # so don't forget to include the username as whom to run the command.
@@ -50,7 +50,7 @@ lazy_static! {
         } else {
             // if not root, use template without username definitions
             format!("
-# version=0.1
+#version=1
 # {}: users bluet rules file.
 # Rules file for a single user.
 

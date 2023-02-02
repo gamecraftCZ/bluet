@@ -99,7 +99,7 @@ impl AddressMatcher {
 /// Filters: "ANY", "PAIRED", "NOT_PAIRED"
 /// Address: "*" for any, "xx:xx:xx:xx:xx:xx" for single address match
 /// Event: "CONNECT", "DISCONNECT", "FOUND, "LOST"
-/// OPTIONAL: User: <username> of the user to run the command as. (Only if is_root = true)
+/// OPTIONAL: User: \<username\> of the user to run the command as. (Only if is_root = true)
 /// Command: Any string to be run in console
 pub fn parse_rule_line(line: &str, usernames_included: bool, username_to_run: &OsStr) -> Result<Option<Rule>, Box<dyn error::Error>> {
     let line = line.trim();
@@ -202,8 +202,8 @@ pub fn parse_rules(rules_text: &String, usernames_included: bool, user_to_run: &
 }
 //endregion
 
-/// Parse rules from <filepath> file and set their 'user_to_run' attribude to <username> user.
-/// If <is_root> is true, load 'username' from config file.
+/// Parse rules from \<filepath\> file and set their 'user_to_run' attribute to \<username\> user.
+/// If \<is_root\> is true, load 'username' from config file.
 /// Prints all errors to log, does not propagate them.
 pub fn load_rules_file(filepath: &Path, is_root: bool, username: &OsStr) -> Vec<Rule> {
     match fs::read_to_string(filepath) {

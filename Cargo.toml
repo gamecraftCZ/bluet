@@ -10,17 +10,11 @@ repository = "https://github.com/gamecraftCZ/bluet"
 readme = "README.md"
 keywords = ["bluetooth", "linux"]
 
-
-[[bin]]
-# BlueT command line utility
-name = "bluet"
-path = "src/bluet.rs"
-required-features = ["cmd"]
-
 [[bin]]
 # BlueT daemon service
 name = "bluet_daemon"
 path = "src/bluet_daemon.rs"
+doc = true
 required-features = ["daemon"]
 
 [profile.release]
@@ -34,7 +28,7 @@ serde = "1.0.152"
 toml = "0.5.10"
 lazy_static = "1.4.0"
 
-# CMD deps
+# Optional deps
 env_logger = { version = "0.10.0", optional = true }
 
 # Daemon deps
@@ -46,6 +40,5 @@ tokio-stream = { version = "0.1.11", optional = true }
 
 
 [features]
-cmd = ["dep:env_logger"]
 daemon = ["dep:bluer", "dep:tokio", "dep:tokio-stream", "dep:futures", "dep:systemd-journal-logger"]
 debug = ["dep:env_logger"]

@@ -37,7 +37,7 @@ mod global_config;
 
 
 /// EventMatcher is responsible for handling rule execution based on
-/// events from BlueZ. Additionaly it allows for rules to be reloaded
+/// events from BlueZ. Additionally it allows for rules to be reloaded
 /// and for devices to be checked for expiration (no info about device is XX seconds).
 pub struct EventMatcher {
     rules: Vec<Rc<Rule>>,
@@ -147,7 +147,7 @@ impl EventMatcher {
     }
 
     /// Checks if any device wasn't seen in 'CONGIG.timeout_for_disconnect' seconds.
-    /// Should be called regularly
+    /// Should be called regularly.
     pub fn check_expired_devices(&mut self) {
         trace!("EventMatcher :: Checking expired devices");
 
@@ -170,8 +170,8 @@ impl EventMatcher {
 
     /// Recheck if the devices that were connected on to_recheck.Intant time
     /// are still connected with the same connection.  
-    /// REASON is that when connections failes BlueZ sets this devices
-    /// connected property to true and immediately to false again. (at least on my RPi 3B)
+    /// REASON is that when connections fails BlueZ sets this devices
+    /// connected property to true and immediately to false again. (at least on my RPi 3B+)
     pub fn recheck_connect(&mut self, to_recheck: &Vec<(AddressBT, Instant)>) {
         debug!("EventMatcher :: Rechecking connect for {} devices", to_recheck.len());
         for (addr, last_connect) in to_recheck {
@@ -271,7 +271,6 @@ impl EventMatcher {
 }
 
 
-// Check for expired devices every X seconds
 // main() returns Result, so we can use await? without expect().
 /// Setup logging, load config and rules, set reload signal listener, 
 /// start checking loop for paired devices and loop checking for change events until exited.
