@@ -1,7 +1,5 @@
 [Unit]
 Description=BlueT daemon
-After=bluetooth.service
-Requires=bluetooth.service
 StartLimitIntervalSec=0
 
 [Service]

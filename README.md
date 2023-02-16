@@ -71,7 +71,7 @@ Read BlueT as  "Blue Tea"
 
 ## Installation as local user daemon
 1. Build the project: `cargo build --package bluet --bin bluet_daemon --release --features="daemon"`
-2. Change service definition file to point to bluet_daemon binary file.
+2. Change service definition file to point to bluet_daemon binary file. Must be absolute path!
 3. Copy service definition file: `sudo cp bluet.service ~/.config/systemd/user`
 4. Reload services files: `sudo systemctl --user daemon-reload`
 5. Enable bluet service: `sudo systemctl --user enable bluet`
@@ -88,6 +88,8 @@ Read BlueT as  "Blue Tea"
 
 - If you get `your_script.sh: command not found` for script you have in your home directory,
   change its path to `./your_script.sh`
+- Rule is not working: Maybe the rule is defined incorrectly. Check `systemctl status bluet` / `systemctl --user status bluet` for logs. 
+  If there was error parsing the rule, you will se it here.
 
 ## Development documentation
 
